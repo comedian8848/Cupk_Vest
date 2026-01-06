@@ -27,6 +27,8 @@ try:
     ma_short = int(input(f"请输入短期均线周期 (默认: {default_ma_short}): ").strip() or default_ma_short)
     ma_medium = int(input(f"请输入中期均线周期 (默认: {default_ma_medium}): ").strip() or default_ma_medium)
     ma_long = int(input(f"请输入长期均线周期 (默认: {default_ma_long}): ").strip() or default_ma_long)
+    current_shares = float(input(f"请输入当前持仓数量 (默认: 0): ").strip() or 0)
+    avg_cost = float(input(f"请输入持仓成本价 (默认: 0, 仅供参考): ").strip() or 0)
 except ValueError:
     print("输入数值无效，将使用默认值。")
     initial_cash = default_cash
@@ -34,6 +36,8 @@ except ValueError:
     ma_short = default_ma_short
     ma_medium = default_ma_medium
     ma_long = default_ma_long
+    current_shares = 0
+    avg_cost = 0
 
 print(f"正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据...")
 
@@ -65,6 +69,8 @@ class SimpleCross(bt.Strategy):
         ma5=5, # 短期均线 
         ma10=10, # 中期均线 
         ma15=15, # 长期均线 
+        current_shares=0, # 用户当前持仓
+        avg_cost=0, # 用户持仓成本
     )  
 
     def __init__(self):
@@ -114,33 +120,66 @@ class SimpleCross(bt.Strategy):
         print(f"MA{self.p.ma15}: {ma15_val:.2f}")
         
         # 分析信号
-        ma_aligned = (ma5_val < ma10_val < ma15_val) # 这里的逻辑可能需要根据用户策略调整，原代码是MA5<MA10<MA15作为买入前提？
-        # 原策略next逻辑：
-        # ma_aligned = (self.sma5[-1] < self.sma10[-1] < self.sma15[-1])  # 昨日排列
-        # buy if ma_aligned and cross_5_10 > 0 (今日金叉)
+        ma_aligned = (ma5_val < ma10_val < ma15_val) 
+        
         
         # 简单分析当前状态
+        print("\n--- 策略信号分析 ---")
         if self.position:
-            print("当前持有仓位。")
+            print("【策略回测状态】: 当前持有仓位。")
             # 卖出逻辑检查
             sell_condition = (self.cross_5_10[0] < 0) or (self.cross_5_15[0] < 0)
             if sell_condition:
-                 print("信号提示: 卖出信号触发 (MA5下穿MA10 或 MA5下穿MA15)")
+                 print("【策略信号】: 卖出信号触发 (MA5下穿MA10 或 MA5下穿MA15)")
             else:
-                 print("信号提示: 继续持有")
+                 print("【策略信号】: 继续持有")
         else:
-            print("当前无仓位。")
-            # 买入逻辑检查 - 使用当前值模拟next中的判断
-            # 注意: next中使用的是[-1]来判断排列，然后用[0]判断交叉? 
-            # 原代码: ma_aligned = (self.sma5[-1] < self.sma10[-1] < self.sma15[-1])
-            #        if ma_aligned and self.cross_5_10 > 0:
-            
-            # 我们检查是否符合买入
+            print("【策略回测状态】: 当前无仓位。")
+            # 买入逻辑检查
             prev_ma_aligned = (self.sma5[-1] < self.sma10[-1] < self.sma15[-1])
             if prev_ma_aligned and self.cross_5_10[0] > 0:
-                print("信号提示: 买入信号触发 (均线排列良好且MA5上穿MA10)")
+                print("【策略信号】: 买入信号触发 (均线排列良好且MA5上穿MA10)")
             else:
-                print("信号提示: 无买入信号")
+                print("【策略信号】: 无买入信号")
+
+        # 基于用户实际持仓的建议
+        print("\n--- 用户持仓分析建议 ---")
+        user_shares = self.p.current_shares
+        user_cost = self.p.avg_cost
+        
+        print(f"用户当前持仓: {user_shares} 股")
+        if user_shares > 0:
+            profit_pct = (last_price - user_cost) / user_cost * 100 if user_cost > 0 else 0
+            print(f"持仓成本: {user_cost:.2f}, 当前盈亏: {profit_pct:.2f}%")
+        
+        # 综合建议逻辑
+        # 1. 卖出信号：死叉 (MA5 下穿 MA10 或 MA15)
+        is_sell_signal = (self.cross_5_10[0] < 0) or (self.cross_5_15[0] < 0)
+        # 2. 买入信号：金叉且均线排列 (MA5上穿MA10 且 昨日MA5<MA10<MA15)
+        prev_ma_aligned = (self.sma5[-1] < self.sma10[-1] < self.sma15[-1])
+        is_buy_signal = prev_ma_aligned and (self.cross_5_10[0] > 0)
+        # 3. 持有信号：均线多头排列 (MA5 > MA10 > MA15) - 简单的多头判断
+        is_bullish = (ma5_val > ma10_val > ma15_val)
+
+        if user_shares > 0:
+            if is_sell_signal:
+                print(">>> 建议: 卖出。当前出现死叉信号，建议止盈或止损。")
+            elif is_buy_signal:
+                print(">>> 建议: 加仓。当前出现金叉信号，且均线排列良好，可考虑加仓。")
+            elif is_bullish:
+                print(">>> 建议: 持有。当前均线呈多头排列，趋势向上。")
+            else:
+                print(">>> 建议: 观望/减仓。当前无明确买入信号，且趋势不明朗，若盈利可考虑减仓。")
+        else:
+            if is_buy_signal:
+                print(">>> 建议: 买入。出现金叉买点，建议建仓。")
+            elif is_sell_signal:
+                print(">>> 建议: 空仓观望。当前处于下跌趋势或卖出信号中。")
+            elif is_bullish:
+                 print(">>> 建议: 谨慎追高/等待回调。当前趋势向上但已错过最佳买点。")
+            else:
+                print(">>> 建议: 空仓观望。当前无明确机会。")
+
         print("========================\n")                
 # Create Cerebro engine 
 cerebro = bt.Cerebro() 
@@ -149,7 +188,7 @@ data = bt.feeds.PandasData(dataname=df)
 # Add data feed to Cerebro 
 cerebro.adddata(data)  
 # Add strategy 
-cerebro.addstrategy(SimpleCross, ma5=ma_short, ma10=ma_medium, ma15=ma_long)  
+cerebro.addstrategy(SimpleCross, ma5=ma_short, ma10=ma_medium, ma15=ma_long, current_shares=current_shares, avg_cost=avg_cost)  
 # Set initial cash 
 cerebro.broker.setcash(initial_cash)  
 # Set commission 
