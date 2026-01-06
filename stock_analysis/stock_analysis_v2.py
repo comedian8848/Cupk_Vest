@@ -3697,10 +3697,23 @@ class StockAnalyzer:
         ax3 = axes[1, 0]
         labels = ['未来现金流现值', '终值现值']
         values = [cumulative_pv / 1e8, terminal_pv / 1e8]
-        colors = ['steelblue', 'coral']
-        wedges, texts, autotexts = ax3.pie(values, labels=labels, colors=colors, autopct='%1.1f%%',
-                                            startangle=90, explode=(0.02, 0.02))
-        ax3.set_title(f'DCF估值构成\n企业价值: {enterprise_value/1e8:.1f}亿')
+        # 处理负值情况：饼图不能有负值
+        if all(v > 0 for v in values):
+            colors = ['steelblue', 'coral']
+            wedges, texts, autotexts = ax3.pie(values, labels=labels, colors=colors, autopct='%1.1f%%',
+                                                startangle=90, explode=(0.02, 0.02))
+            ax3.set_title(f'DCF估值构成\n企业价值: {enterprise_value/1e8:.1f}亿')
+        else:
+            # 负现金流时显示柱状图替代饼图
+            colors = ['steelblue' if v >= 0 else 'red' for v in values]
+            bars = ax3.bar(labels, values, color=colors, alpha=0.7)
+            ax3.axhline(y=0, color='black', linewidth=0.5)
+            for bar, v in zip(bars, values):
+                ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                        f'{v:.1f}亿', ha='center', va='bottom' if v >= 0 else 'top', fontsize=9)
+            ax3.set_ylabel('金额 (亿元)')
+            ax3.set_title(f'DCF估值构成\n⚠️ 存在负现金流，企业价值: {enterprise_value/1e8:.1f}亿')
+            ax3.grid(True, alpha=0.3, axis='y')
         
         # 子图4: 估值结果
         ax4 = axes[1, 1]
