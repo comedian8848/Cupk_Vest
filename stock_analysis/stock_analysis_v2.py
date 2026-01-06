@@ -45,6 +45,7 @@ plt.rcParams['figure.dpi'] = 150
 
 
 import analysis
+import ths_impl  # 新增同花顺接口
 
 
 # ==================== 量化回测模块 ====================
@@ -1108,6 +1109,9 @@ class StockAnalyzer:
         
         # 2. 核心竞争力
         self._analyze_competitiveness(df, latest)
+
+        # 2.1 同行业对比 (同花顺数据)
+        self._analyze_industry_comparison()
         
         # 3. 财务安全与风险
         self._analyze_risks(df, latest)
@@ -1268,7 +1272,65 @@ class StockAnalyzer:
             self._log(f"\n  ⚠️ 护城河评估: 较弱 (得分: {moat_score})")
         
         self.scores['profitability'] = min(moat_score, 100)
-    
+
+    def _analyze_industry_comparison(self):
+        """(新增) 同行业对比分析 - 需pywencai支持"""
+        if not ths_impl.HAS_PYWENCAI:
+            self._log("\n🚧 2.1 同行业对比 (跳过: 未安装 pywencai)")
+            return
+
+        self._log("\n📊 2.1 同行业对比 (来源: 同花顺问财)")
+        self._log("-" * 60)
+        
+        df = ths_impl.get_industry_comparison(self.stock_code)
+        if df is None or df.empty:
+            self._log("  ⚠️ 获取对比数据失败或无数据")
+            return
+            
+        # 找到本公司
+        my_code = ths_impl.check_dependencies
+        # df 中 代码 列可能带后缀
+        
+        # 打印前5名和本公司
+        # 格式化输出表头
+        header = f"{'简称':<8} | {'市值':<8} | {'毛利率':<6} | {'净利增':<6} | {'ROE':<5} | {'BVPS':<5}"
+        self._log(f"  {header}")
+        self._log(f"  {'-'*len(header)}")
+        
+        shown_myself = False
+        count = 0
+        
+        for _, row in df.iterrows():
+            is_me = str(row.get('代码','')).startswith(self.stock_code)
+            
+            # 只显示前5名和自己
+            if count >= 5 and not is_me:
+                continue
+                
+            name = str(row.get('名称', ''))[:4]
+            mkt_cap = self._format_number(row.get('总市值', 0))
+            g_margin = f"{row.get('毛利率', 0):.1f}%"
+            np_grow = f"{row.get('净利增速', 0):.1f}%"
+            roe = f"{row.get('ROE', 0):.1f}%"
+            bvps = f"{row.get('BVPS', 0):.2f}"
+            
+            # 高亮自己
+            prefix = "👉" if is_me else "  "
+            line = f"{prefix}{name:<8} | {mkt_cap:<8} | {g_margin:<6} | {np_grow:<6} | {roe:<5} | {bvps:<5}"
+            self._log(line)
+            
+            if is_me:
+                shown_myself = True
+                
+            count += 1
+            if count >= 5 and shown_myself:
+                break
+                
+        if not shown_myself:
+            # 如果也没找到自己(可能排名太靠后)，尝试打印最后一行? 
+            # 暂时忽略
+            self._log("  (注: 列表中未找到本公司，可能排名较后)")
+
     def _analyze_risks(self, df, latest):
         """分析财务风险"""
         self._log("\n⚠️ 3. 财务风险评估")
@@ -1310,28 +1372,68 @@ class StockAnalyzer:
                 elif current_ratio > 2:
                     self._log(f"    → 短期偿债能力强")
             
-            # 应收账款风险
+            # 应收账款与坏账风险 (最大坏账可能)
             receivables = self._safe_float(bs_latest.get('应收账款'))
+            notes_recv = self._safe_float(bs_latest.get('应收票据'))
+            other_recv = self._safe_float(bs_latest.get('其他应收款'))
+            
+            # 广义应收款 = 应收 + 票据 + 其他 (可能是坏账的极限)
+            broad_receivables = receivables + notes_recv + other_recv
+            
             revenue_col = next((c for c in df.columns if '营业总收入' in c or '营业收入' in c), None)
-            if revenue_col and receivables > 0:
+            total_assets = self._safe_float(bs_latest.get('资产总计'))
+            
+            if revenue_col and broad_receivables > 0:
                 revenue = self._safe_float(latest[revenue_col])
+                
                 if revenue > 0:
-                    receivables_ratio = receivables / revenue
-                    self._log(f"  • 应收账款/营收: {receivables_ratio:.1%}")
+                    recv_to_rev = broad_receivables / revenue
+                    recv_to_asset = broad_receivables / total_assets if total_assets > 0 else 0
                     
-                    if receivables_ratio > 0.5:
-                        risk_items.append("🟠 应收账款占比高")
-                        safety_score -= 15
+                    self._log(f"  • 广义应收款: {self._format_number(broad_receivables)} (含票据/其他)")
+                    self._log(f"  • 应收/营收比: {recv_to_rev:.1%}")
+                    self._log(f"  • 最大坏账敞口/总资产: {recv_to_asset:.1%}")
+                    
+                    if recv_to_rev > 0.6:
+                        risk_items.append("🔴 应收账款过高 (可能虚增营收)")
+                        safety_score -= 20
+                    elif recv_to_rev > 0.3:
+                        risk_items.append("🟠 回款压力较大")
+                        safety_score -= 10
             
             # 存货风险
             inventory = self._safe_float(bs_latest.get('存货'))
             if revenue_col and inventory > 0:
-                inventory_ratio = inventory / revenue
-                self._log(f"  • 存货/营收: {inventory_ratio:.1%}")
-                
-                if inventory_ratio > 0.5:
-                    risk_items.append("🟠 存货占比高")
-                    safety_score -= 10
+                if revenue > 0:
+                    inventory_ratio = inventory / revenue
+                    self._log(f"  • 存货/营收: {inventory_ratio:.1%}")
+                    
+                    if inventory_ratio > 0.5:
+                        risk_items.append("🟠 存货占比高 (可能有积压)")
+                        safety_score -= 10
+
+            # 供应链集中度 (同花顺数据)
+            if ths_impl.HAS_PYWENCAI:
+                sc_info = ths_impl.get_supply_chain_info(self.stock_code)
+                if sc_info:
+                    c_pct = sc_info.get('top5_customers_pct', 0)
+                    s_pct = sc_info.get('top5_suppliers_pct', 0)
+                    
+                    # 格式化显示，注意有些是字符串带%
+                    try:
+                        c_val = float(str(c_pct).replace('%', ''))
+                        s_val = float(str(s_pct).replace('%', ''))
+                        
+                        self._log(f"  • 前五大客户占比: {c_val:.1f}%")
+                        self._log(f"  • 前五大供应商占比: {s_val:.1f}%")
+                        
+                        if c_val > 50:
+                            risk_items.append("🟠 客户高度依赖 (>50%)")
+                            safety_score -= 10
+                        if s_val > 50:
+                            risk_items.append("🟠 供应商高度依赖 (>50%)")
+                    except:
+                        pass
         
         # 输出风险汇总
         if risk_items:
