@@ -1275,8 +1275,8 @@ class StockAnalyzer:
 
     def _analyze_industry_comparison(self):
         """(新增) 同行业对比分析 - 需pywencai支持"""
-        if not ths_impl.HAS_PYWENCAI:
-            self._log("\n🚧 2.1 同行业对比 (跳过: 未安装 pywencai)")
+        if not ths_impl.ENABLED:
+            # 静默跳过，不打印日志避免干扰
             return
 
         self._log("\n📊 2.1 同行业对比 (来源: 同花顺问财)")
@@ -1413,7 +1413,7 @@ class StockAnalyzer:
                         safety_score -= 10
 
             # 供应链集中度 (同花顺数据)
-            if ths_impl.HAS_PYWENCAI:
+            if ths_impl.ENABLED:
                 sc_info = ths_impl.get_supply_chain_info(self.stock_code)
                 if sc_info:
                     c_pct = sc_info.get('top5_customers_pct', 0)

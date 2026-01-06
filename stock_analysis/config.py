@@ -55,3 +55,9 @@ MAX_WORKERS = 8
 
 # 获取K线数据时的年限
 KLINE_YEARS = 10
+
+# 数据源配置开关
+DATA_SOURCE_CONFIG = {
+    'USE_TONGHUASHUN': False,  # 是否启用同花顺（问财）数据源（需要 pywencai + Node.js）
+    'USE_AKSHARE_ONLY': True,  # 仅使用 akshare（默认推荐）
+}

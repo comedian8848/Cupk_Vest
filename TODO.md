@@ -25,6 +25,7 @@
 ## 🆕 功能扩展
 
 ### 5. 新增分析维度
+- [ ] **同花顺接口适配**: 重写 ths_impl.py 支持 pywencai 0.9+ 新版 dict 格式
 - [ ] **机构持仓追踪**: 利用 akshare 的 `stock_institute_hold_detail` 接口
 - [ ] **行业景气度**: 从同花顺获取行业 PE、PB 中位数，判断行业估值水位
 - [ ] **管理层持股变动**: 解析董监高增减持数据（akshare 已有接口）
@@ -43,9 +44,8 @@
 ## 🐛 Bug 修复
 
 ### 8. 已知问题
-- [ ] **ths_impl.py L52**: `my_code = ths_impl.check_dependencies` 赋值错误（应为字符串处理）
+- [x] **ths_impl.py**: pywencai 0.9+ 版本返回格式已改为 dict，旧代码不可用 **(P0 - 已禁用)**
 - [ ] **stock_analysis_v2.py L1324**: 同行业对比时未正确识别本公司（代码匹配逻辑有误）
-- [ ] **delete_file.py & inspect_akshare.py**: 调试脚本应移入 `tests/` 目录或删除
 
 ### 9. 边界情况
 - [ ] **期货分析**: `FuturesAnalyzer` 未集成回测功能，建议复用股票回测框架

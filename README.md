@@ -168,6 +168,20 @@ FONT_FAMILY = 'Arial Unicode MS'  # macOS 字体（Windows 改为 SimHei）
 | 回测功能不可用 | 执行 `pip install backtrader` |
 | 中文乱码 | 修改 `config.py` 中 `FONT_FAMILY` |
 | 数据缺失 | 检查股票代码是否正确、是否已退市 |
+| **同花顺数据源** | **默认禁用**，pywencai 接口已变更，如需启用请参考 [TODO.md](TODO.md) |
+
+### 数据源配置
+
+在 `stock_analysis/config.py` 中可调整数据源：
+
+```python
+DATA_SOURCE_CONFIG = {
+    'USE_TONGHUASHUN': False,  # 同花顺（问财）数据源（暂不可用）
+    'USE_AKSHARE_ONLY': True,  # 仅使用 akshare（推荐）
+}
+```
+
+**注意**: pywencai 新版本 (0.9+) 返回格式已改为 dict，旧代码需适配。测试脚本：`python stock_analysis/test_ths_api.py`
 
 ---
 

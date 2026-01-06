@@ -4,40 +4,62 @@
 功能：
 1. 获取同行业对比数据 (毛利率、增速、ROE、市值等)
 2. 获取供应链数据 (前五大客户/供应商占比)
+
+注意：pywencai 接口经常变动，且需要 Node.js 环境
+建议优先使用 akshare，此模块仅作为补充数据源
 """
 
 import pandas as pd
 import time
+from config import DATA_SOURCE_CONFIG
+
 try:
     import pywencai
     HAS_PYWENCAI = True
 except ImportError:
     HAS_PYWENCAI = False
 
+# 配置开关检查
+ENABLED = DATA_SOURCE_CONFIG.get('USE_TONGHUASHUN', False) and HAS_PYWENCAI
+
 def check_dependencies():
     """检查是否安装了必要依赖"""
-    if not HAS_PYWENCAI:
-        print("⚠ 未检测到 pywencai 库，无法获取同花顺数据。")
-        print("请运行: pip install pywencai")
-        print("注意: pywencai 需要系统安装 Node.js 环境")
+    if not ENABLED:
+        if not HAS_PYWENCAI:
+            print("ℹ️  未启用同花顺数据源（pywencai 未安装）")
+        else:
+            print("ℹ️  同花顺数据源已禁用（config.py 中 USE_TONGHUASHUN=False）")
         return False
+    
+    print("✓ 同花顺数据源已启用")
     return True
 
 def get_industry_comparison(symbol):
     """
     获取同行业对比数据
     指标: 销售毛利率, 净利润增速, ROE, 总市值, 每股净资产
+    
+    注意：pywencai 0.9+ 版本返回格式已改为 dict，本函数暂不可用
+    建议使用 akshare 的行业数据接口替代
     """
-    if not HAS_PYWENCAI:
+    if not ENABLED:
         return None
     
     # 构造自然语言查询语句
-    # 注意：问财的关键词可能会变，尽量用标准词
     query = f"{symbol}及同行业成分股 销售毛利率 净利润增长率 净资产收益率(摊薄) 总市值 每股净资产 所属同花顺行业"
     
     try:
-        # loop = True 会尝试翻页获取所有数据
-        df = pywencai.get(query=query, loop=True)
+        # ⚠️ pywencai 新版本返回 dict 而非 DataFrame，需要适配
+        result = pywencai.get(query=query, loop=True)
+        
+        # 新版本处理（返回字典）
+        if isinstance(result, dict):
+            print("⚠️  pywencai 返回格式已变更为 dict，暂不支持解析")
+            print(f"   可用键: {list(result.keys())}")
+            return None
+        
+        # 旧版本处理（返回 DataFrame）
+        df = result
         if df is None or df.empty:
             return None
             
@@ -87,8 +109,10 @@ def get_industry_comparison(symbol):
 def get_supply_chain_info(symbol):
     """
     获取前五大客户/供应商占比
+    
+    注意：pywencai 新版本接口已变更，暂不可用
     """
-    if not HAS_PYWENCAI:
+    if not ENABLED:
         return None
         
     query = f"{symbol} 前五大客户占比 前五大供应商占比"
