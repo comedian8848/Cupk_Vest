@@ -2,7 +2,7 @@ import akshare as ak # 历史数据
 import pandas as pd # 格式转换 
 import backtrader as bt # 回测框架 
 from datetime import datetime, timedelta
-
+#testing git pull
 # 计算默认日期
 today = datetime.now()
 one_year_ago = today - timedelta(days=365)
