@@ -3,6 +3,7 @@ import pandas as pd # 格式转换
 import backtrader as bt # 回测框架 
 from datetime import datetime, timedelta
 # 计算默认日期
+#testing date range: last year to today
 today = datetime.now()
 one_year_ago = today - timedelta(days=365)
 
