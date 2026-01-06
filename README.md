@@ -1,84 +1,187 @@
-# A股/期货全方位分析与回测框架 (Vest)
+<div align="center">
 
-这是一个基于 Python 的综合性金融分析工具，集成了数据获取、基本面分析、技术面分析、财务报表解读以及量化回测功能。项目位于 `vest` 目录下。
+# 📈 A股/期货全方位分析与回测框架
 
-## 📁 项目结构
+**基于 Python 的综合金融分析工具**  
+覆盖数据获取 → 基本面分析 → 财报解读 → 量化回测 → 自动报告生成
 
-主要脚本及其功能说明：
+![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
+![akshare](https://img.shields.io/badge/Data-akshare-green.svg)
+![backtrader](https://img.shields.io/badge/Backtest-backtrader-orange.svg)
 
-- **`stock_analysis_v2.py`** (核心)
-    - **功能**: 项目的主入口程序。
-    - **主要职责**:
-        - 协调数据获取、分析和报告生成。
-        - **增量分析**: 分析营收、净利润的季度/年度趋势，判断增长质量和预期。
-        - **公司分析**: 评估基本面（成长性、护城河）、财务风险、分红能力和估值水平。
-        - **财报解读**: 深度解读最新财报，分析现金流结构和资产负债状况。
-        - **量化回测**: 使用 `backtrader` 框架运行技术指标策略（如双均线交叉），评估历史表现。
-        - **期货分析**: 支持商品期货的趋势分析（包含 `FuturesAnalyzer` 类）。
-    - **输出**: 生成包含图表和 Markdown 格式的详细分析报告。
+</div>
 
-- **`data_fetcher.py`**
-    - **功能**: 数据获取模块。
-    - **特点**: 使用多线程并发从 `akshare` 等数据源获取财务数据、K线数据、分红记录、北向资金流向等。包含数据清洗和标准化逻辑。
+---
 
-- **`analysis.py`**
-    - **功能**: 核心计算库。
-    - **职责**: 提供各类财务指标（单季度数据拆分、TTM计算）和技术指标（RSI, MACD, KDJ, 均线斜率）的计算函数。
+## 🗂️ 项目结构
 
-- **`config.py`**
-    - **功能**: 配置文件。
-    - **内容**: 定义了模型参数（DCF, DDM, EVA）、绘图样式（字体、颜色）、并发设置以及行业对标配置。
+```
+├── stock_analysis/                  # 核心分析模块
+│   ├── stock_analysis_v2.py         # 主程序入口（股票 + 期货分析）
+│   ├── data_fetcher.py              # 多线程数据抓取与清洗
+│   ├── analysis.py                  # 财务/技术指标计算库
+│   ├── config.py                    # 模型参数与样式配置
+│   └── requirements.txt             # Python 依赖
+│
+└── akshare+backtrader回测框架/       # 独立回测策略示例
+    ├── Single Moving Average.py     # 单均线策略
+    ├── Double Moving Average.py     # 双均线金叉/死叉策略
+    └── Three moving averages.py     # 三均线交互策略（支持参数输入）
+```
 
-- **`test_fix.py`**
-    - **功能**: 测试脚本。
-    - **用途**: 用于验证特定的修复或功能是否正常（例如验证 `analyze_growth_momentum` 函数的修复）。
+---
 
-- **`delete_file.py`** & **`inspect_akshare.py`**
-    - **功能**: 辅助工具脚本，用于清理文件或检查 `akshare` 库的 API 变动。
+## ✨ 功能亮点
+
+### 股票分析四大模块
+
+| 模块 | 核心功能 | 关键问题 |
+|------|----------|----------|
+| **🚀 增量分析** | 单季度拆分、TTM 序列、同比/环比趋势 | 业绩增量是否有预期？ |
+| **🏢 公司分析** | 成长性、竞争力、财务安全、分红能力、估值 | 公司质地如何？ |
+| **📑 财报解读** | 业绩表现、现金流健康度、资产负债结构 | 财报有何风险信号？ |
+| **🤖 量化回测** | 双均线交叉策略、夏普比率、最大回撤 | 策略历史表现如何？ |
+
+### 期货分析
+
+- 支持主连品种趋势分析（黄金、白银、原油、螺纹钢等 20+ 品种）
+- 自动计算 MA20/MA60/MA120 均线并标注高低点
+- 输出趋势图与 Markdown 报告
+
+### 技术指标
+
+- **趋势类**：SMA、均线斜率
+- **动量类**：RSI、MACD、KDJ
+- **估值类**：PE(TTM)、PB、PS 历史分位点
+
+---
 
 ## 🚀 快速开始
 
-### 环境准备
-
-确保已安装必要的 Python 库（参考 `vest/requirements.txt`）：
+### 1. 环境准备
 
 ```bash
-pip install akshare backtrader pandas numpy matplotlib seaborn
+# 安装核心依赖
+pip install -r stock_analysis/requirements.txt
+
+# 安装回测框架（可选，用于量化回测功能）
+pip install backtrader
 ```
 
-### 运行分析
-
-进入 `vest` 目录：
+### 2. 运行分析
 
 ```bash
-cd vest
-```
+cd stock_analysis
 
-运行主程序进行分析（支持股票代码或期货名称）：
+# 股票分析（输入 6 位代码）
+python stock_analysis_v2.py 002683    # 宏大爆破
+python stock_analysis_v2.py 600519    # 贵州茅台
 
-```bash
-# 分析某只股票 (例如: 002683)
-python stock_analysis_v2.py 002683
-
-# 分析某只股票 (例如: 贵州茅台) - 需代码支持中文映射或自行输入代码
-python stock_analysis_v2.py 600519
-
-# 分析期货品种 (例如: 黄金)
+# 期货分析（支持中文名称自动映射）
 python stock_analysis_v2.py 黄金
+python stock_analysis_v2.py 螺纹
+
+# 交互模式（不带参数）
+python stock_analysis_v2.py
 ```
 
-如果不带参数运行，程序会提示输入代码。
+### 3. 独立回测示例
 
-## 📊 功能亮点
+```bash
+cd akshare+backtrader回测框架
 
-1.  **多维度的增量分析**: 不仅仅看绝对值，更关注季度同比/环比的变化趋势，捕捉业绩加速或反转信号。
-2.  **全面的风险预警**: 自动扫描“存贷双高”、非经常性损益占比过高、现金流恶化等潜在雷区。
-3.  **智能估值系统**: 结合 PE(TTM)、PB、PEG 以及历史分位点，给出低估/合理的判断，并计算 PEG 匹配度。
-4.  **自动化回测**: 内置经典交易策略回测，直观展示策略在标的上的历史收益和回撤情况。
-5.  **精美的可视化**: 自动生成营收利润走势图、增量信号仪表盘、技术分析图表等。
+# 双均线策略（快速验证）
+python "Double Moving Average.py"
 
-## 📝 产出物
+# 三均线策略（支持自定义参数）
+python "Three moving averages.py"
+```
 
-运行结束后，程序会在当前目录下创建一个名为 `分析报告_<代码>_<时间戳>` 的文件夹，其中包含：
-- 各类分析图表 (`.png`)
-- 综合分析报告 (`report.md`)
+---
+
+## 🔗 工作流程
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  数据获取   │ -> │  数据处理   │ -> │  分析引擎   │ -> │  报告输出   │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       │                  │                  │                  │
+  data_fetcher       analysis.py      stock_analysis_v2      输出目录
+  • 财务三表        • 单季度拆分       • 增量分析           • *.png 图表
+  • K线/分红        • TTM 计算         • 公司分析           • report.md
+  • 北向资金        • 技术指标         • 财报解读
+  • 股东结构                           • 量化回测
+```
+
+---
+
+## ⚙️ 配置说明
+
+编辑 `stock_analysis/config.py` 可自定义：
+
+```python
+# 估值模型参数
+DCF_CONFIG = {
+    'DISCOUNT_RATE': 0.10,      # 折现率 (WACC)
+    'TERMINAL_GROWTH': 0.03,    # 永续增长率
+}
+
+DDM_CONFIG = {
+    'REQUIRED_RETURN': 0.10,    # 要求回报率
+}
+
+EVA_CONFIG = {
+    'WACC': 0.08                # 加权平均资本成本
+}
+
+# 数据获取
+MAX_WORKERS = 8                 # 并发线程数
+KLINE_YEARS = 10                # K线数据年限
+
+# 可视化
+FONT_FAMILY = 'Arial Unicode MS'  # macOS 字体（Windows 改为 SimHei）
+```
+
+---
+
+## 📝 输出示例
+
+运行后在当前目录生成：
+
+```
+分析报告_002683_20260106_1430/
+├── revenue_profit_trend.png      # 营收利润趋势
+├── growth_momentum.png           # 增量信号仪表盘
+├── cash_flow_structure.png       # 现金流结构
+├── valuation_history.png         # 估值历史分位
+├── backtest_result.png           # 回测收益曲线
+└── report.md                     # 综合分析报告
+```
+
+---
+
+## ⚠️ 注意事项
+
+| 问题 | 解决方案 |
+|------|----------|
+| akshare 接口超时 | 降低 `MAX_WORKERS` 或重试 |
+| 回测功能不可用 | 执行 `pip install backtrader` |
+| 中文乱码 | 修改 `config.py` 中 `FONT_FAMILY` |
+| 数据缺失 | 检查股票代码是否正确、是否已退市 |
+
+---
+
+## 📚 依赖说明
+
+| 库 | 用途 |
+|----|------|
+| akshare | A股/期货数据源 |
+| pandas / numpy | 数据处理 |
+| matplotlib / seaborn | 可视化 |
+| backtrader | 量化回测框架 |
+
+---
+
+## 📄 License
+
+MIT License
