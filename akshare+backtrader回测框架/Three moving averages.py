@@ -1,8 +1,42 @@
 import akshare as ak # 历史数据 
 import pandas as pd # 格式转换 
 import backtrader as bt # 回测框架 
+from datetime import datetime, timedelta
 
-df = ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20240101", end_date='20250101', adjust="hfq") 
+# 计算默认日期
+today = datetime.now()
+yesterday = today - timedelta(days=1)
+one_year_ago = today - timedelta(days=365)
+
+default_symbol = "000001"
+default_start_date = one_year_ago.strftime("%Y%m%d")
+default_end_date = yesterday.strftime("%Y%m%d")
+default_cash = 100000.0
+default_stake_percent = 20
+
+# 获取用户输入
+symbol = input(f"请输入股票代码 (默认: {default_symbol}): ").strip() or default_symbol
+start_date = input(f"请输入开始日期 (默认: {default_start_date}): ").strip() or default_start_date
+end_date = input(f"请输入结束日期 (默认: {default_end_date}): ").strip() or default_end_date
+try:
+    initial_cash = float(input(f"请输入起始资金 (默认: {default_cash}): ").strip() or default_cash)
+    stake_percent = float(input(f"请输入每笔交易资金百分比 (默认: {default_stake_percent}): ").strip() or default_stake_percent)
+except ValueError:
+    print("资金或百分比输入无效，将使用默认值。")
+    initial_cash = default_cash
+    stake_percent = default_stake_percent
+
+print(f"正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据...")
+
+try:
+    df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="hfq")
+    if df.empty:
+        print("未获取到数据，请检查输入参数。")
+        exit()
+except Exception as e:
+    print(f"获取数据出错: {e}")
+    exit()
+
 print(df)  
 # Convert and prepare data 
 df['日期'] = pd.to_datetime(df['日期']) 
@@ -65,11 +99,11 @@ cerebro.adddata(data)
 # Add strategy 
 cerebro.addstrategy(SimpleCross)  
 # Set initial cash 
-cerebro.broker.setcash(100000.0)  
+cerebro.broker.setcash(initial_cash)  
 # Set commission 
 cerebro.broker.setcommission(commission=0.005)  
 # Add sizer 
-cerebro.addsizer(bt.sizers.PercentSizer, percents=20)  
+cerebro.addsizer(bt.sizers.PercentSizer, percents=stake_percent)  
 # Add analyzer 
 cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe') 
 cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')  
