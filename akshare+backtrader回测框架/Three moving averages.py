@@ -42,7 +42,7 @@ except ValueError:
 print(f"正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据...")
 
 try:
-    df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="hfq")
+    df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
     if df.empty:
         print("未获取到数据，请检查输入参数。")
         exit()

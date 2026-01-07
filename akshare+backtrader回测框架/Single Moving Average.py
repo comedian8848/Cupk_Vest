@@ -2,7 +2,7 @@ import akshare as ak # 历史数据
 import pandas as pd # 格式转换 
 import backtrader as bt # 回测框架 
 
-df = ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20250101", end_date='20260105', adjust="hfq") 
+df = ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20250101", end_date='20260105', adjust="qfq") 
 print(df)  
 # Convert and prepare data 
 df['日期'] = pd.to_datetime(df['日期']) 
