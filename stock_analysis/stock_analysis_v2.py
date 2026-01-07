@@ -3351,9 +3351,24 @@ class StockAnalyzer:
 
     def _plot_competitor_analysis(self):
         """生成行业对标分析雷达图"""
-        # *********** 用户修改区域 ***********
-        # 请在此处输入1-4个竞争对手的股票代码
-        competitor_codes = ['601008', '601880', '603967'] 
+        # *********** 自动获取行业竞对 ***********
+        competitor_codes = []
+        try:
+            if self.industry and self.industry != "未知":
+                # 获取同行业对比数据 (排除自己)
+                df_comp = industry_compare.get_industry_comparison(self.industry, self.stock_code)
+                if df_comp is not None and not df_comp.empty:
+                    # 排除自己
+                    df_comp = df_comp[df_comp['代码'] != self.stock_code]
+                    # 取前4个 (按成交额排序)
+                    competitor_codes = df_comp.head(4)['代码'].astype(str).tolist()
+                    print(f"  自动匹配同行业对比公司: {competitor_codes}")
+        except Exception as e:
+            print(f"  ⚠ 自动获取竞对失败: {e}")
+
+        # 如果获取失败或为空，保留默认作为兜底
+        if not competitor_codes:
+            competitor_codes = ['601008', '601880', '603967'] 
         # ***********************************
 
         metrics_to_compare = {
