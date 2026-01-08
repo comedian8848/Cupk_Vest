@@ -106,10 +106,23 @@ def list_reports():
                 time_str = parts[3]
                 try:
                     dt = datetime.datetime.strptime(f"{date_str}{time_str}", "%Y%m%d%H%M")
+                    
+                    # Try to get stock name from analysis_data.json
+                    stock_name = None
+                    json_path = os.path.join(d, 'analysis_data.json')
+                    if os.path.exists(json_path):
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                stock_name = data.get('meta', {}).get('stock_name')
+                        except:
+                            pass
+                    
                     reports.append({
                         "id": dirname,
                         "type": "stock",
                         "code": code,
+                        "name": stock_name,  # Add stock name
                         "date": dt.strftime("%Y-%m-%d %H:%M"),
                         "timestamp": dt.timestamp(),
                         "path": dirname
@@ -133,6 +146,7 @@ def list_reports():
                     "id": filename,
                     "type": "futures",
                     "code": symbol,
+                    "name": None,
                     "date": dt.strftime("%Y-%m-%d"),
                     "timestamp": dt.timestamp(),
                     "path": filename
@@ -200,7 +214,39 @@ def get_report_summary(report_id):
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return jsonify(data)
+            
+            # Extract and map fields for frontend
+            meta = data.get('meta', {})
+            valuation = data.get('valuation', {})
+            fundamentals = data.get('fundamentals', {})
+            
+            summary = {
+                # Meta info
+                'stock_name': meta.get('stock_name'),
+                'industry': meta.get('industry'),
+                'total_shares': meta.get('total_shares_yi', 0) * 1e8,  # Convert to actual shares
+                'analysis_date': meta.get('analysis_date'),
+                
+                # Valuation
+                'market_cap': valuation.get('total_mv_yi', 0) * 1e8,  # Convert to actual value
+                'pe_ttm': valuation.get('pe_ttm'),
+                'pb': valuation.get('pb'),
+                'dividend_yield': valuation.get('dividend_yield'),
+                'price': valuation.get('price'),
+                
+                # Fundamentals (convert percentages)
+                'roe': fundamentals.get('roe_pct'),
+                'gross_margin': fundamentals.get('gross_margin_pct'),
+                'net_margin': fundamentals.get('net_margin_pct'),
+                'debt_ratio': fundamentals.get('debt_ratio_pct'),
+                'revenue': fundamentals.get('revenue_yi'),
+                'net_profit': fundamentals.get('net_profit_yi'),
+                
+                # Full data for reference
+                'full_data': data
+            }
+            
+            return jsonify(summary)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     

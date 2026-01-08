@@ -64,12 +64,12 @@ function App() {
       {/* Header */}
       <header className="geek-header">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center" style={{width: 36, height: 36, background: 'var(--accent-primary)', borderRadius: 'var(--radius-md)'}}>
+          <div className="flex items-center justify-center" style={{width: 36, height: 36, background: 'linear-gradient(135deg, var(--accent-primary), var(--color-up))', borderRadius: 'var(--radius-md)'}}>
             <BarChart3 size={20} color="white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-primary">Analysis Pro</h1>
-            <div className="text-xs text-muted">股票 / 期货分析平台</div>
+            <h1 className="text-lg font-bold text-primary">BlackOil</h1>
+            <div className="text-xs text-muted">专业金融分析平台</div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -136,6 +136,7 @@ function App() {
                   </div>
                   
                   <h3 className="text-xl font-bold text-primary mb-1">{report.code}</h3>
+                  {report.name && <div className="text-xs text-muted mb-1">{report.name}</div>}
                   <div className="text-sm text-secondary">{report.date}</div>
                 </div>
               ))}
@@ -340,7 +341,10 @@ function ReportDetail({ report, onBack }) {
               <div className="text-xs text-accent mb-1">
                 {report.type === 'stock' ? '股票代码' : '期货品种'}
               </div>
-              <h1 className="text-3xl font-bold text-primary">{report.code}</h1>
+              <div>
+                <h1 className="text-3xl font-bold text-primary">{report.code}</h1>
+                {summary.stock_name && <div className="text-sm text-secondary mt-1">{summary.stock_name}</div>}
+              </div>
             </div>
             
             <div className="flex items-center gap-3">
@@ -359,11 +363,27 @@ function ReportDetail({ report, onBack }) {
 
           {/* Metrics Row */}
           {summary.stock_name && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-              <MetricBox label="名称" value={summary.stock_name} />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
               <MetricBox label="行业" value={summary.industry || '-'} />
-              <MetricBox label="评分" value="N/A" highlight />
-              <MetricBox label="评级" value="N/A" />
+              <MetricBox label="总股本" value={summary.total_shares ? (summary.total_shares / 1e8).toFixed(2) + '亿' : '-'} />
+              <MetricBox label="市值" value={summary.market_cap ? (summary.market_cap / 1e8).toFixed(2) + '亿' : '-'} highlight />
+              <MetricBox label="PE(TTM)" value={summary.pe_ttm ? summary.pe_ttm.toFixed(2) : '-'} />
+            </div>
+          )}
+          
+          {/* Key Insights */}
+          {summary && Object.keys(summary).length > 0 && (
+            <div className="border-t" style={{borderColor: 'var(--border-color)', paddingTop: '16px', marginTop: '16px'}}>
+              <h3 className="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
+                <span style={{width: 4, height: 4, borderRadius: '50%', background: 'var(--accent-primary)'}}></span>
+                关键指标
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {summary.roe && <KeyInsightItem label="ROE" value={summary.roe.toFixed(2) + '%'} />}
+                {summary.gross_margin && <KeyInsightItem label="毛利率" value={summary.gross_margin.toFixed(2) + '%'} />}
+                {summary.net_margin && <KeyInsightItem label="净利率" value={summary.net_margin.toFixed(2) + '%'} />}
+                {summary.debt_ratio && <KeyInsightItem label="负债比" value={summary.debt_ratio.toFixed(2) + '%'} />}
+              </div>
             </div>
           )}
         </div>
@@ -424,6 +444,15 @@ function MetricBox({ label, value, highlight = false }) {
     <div className={`metric-box ${highlight ? 'highlight' : ''}`}>
       <div className="metric-label">{label}</div>
       <div className="metric-value truncate">{value || '-'}</div>
+    </div>
+  )
+}
+
+function KeyInsightItem({ label, value }) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded" style={{background: 'var(--bg-tertiary)'}}>
+      <span className="text-sm text-secondary">{label}</span>
+      <span className="font-semibold text-primary">{value}</span>
     </div>
   )
 }
