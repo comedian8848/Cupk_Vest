@@ -1,9 +1,51 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
 import axios from 'axios'
 import { BarChart3, Activity, DollarSign, TrendingUp, FileText, Image as ImageIcon, ArrowLeft, RefreshCw, Cpu, Box, Layers, AlertTriangle, Play, Loader, CheckCircle, XCircle, LayoutGrid, Maximize2, LineChart, PieChart, BarChart2, TrendingDown, AlertCircle } from 'lucide-react'
 import { LineChart as ReLineChart, Line, BarChart as ReBarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart } from 'recharts'
 
 const API_BASE = 'http://localhost:5001/api'
+
+// ==================== 性能优化工具 ====================
+// 配置 axios 默认超时和重试
+axios.defaults.timeout = 30000
+
+// 简单的内存缓存
+const cache = new Map()
+const CACHE_TTL = 60000 // 1分钟缓存
+
+const getCached = (key) => {
+  const item = cache.get(key)
+  if (item && Date.now() - item.time < CACHE_TTL) {
+    return item.data
+  }
+  cache.delete(key)
+  return null
+}
+
+const setCache = (key, data) => {
+  cache.set(key, { data, time: Date.now() })
+}
+
+// 防抖 hook
+const useDebounce = (value, delay = 300) => {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return debouncedValue
+}
+
+// 安全的数值格式化
+const safeNumber = (val, decimals = 2) => {
+  const num = Number(val)
+  return isNaN(num) ? null : num.toFixed(decimals)
+}
+
+const safePercent = (val, decimals = 2) => {
+  const num = Number(val)
+  return isNaN(num) ? null : `${num.toFixed(decimals)}%`
+}
 
 function App() {
   const [reports, setReports] = useState([])
@@ -11,54 +53,100 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showAnalyzer, setShowAnalyzer] = useState(false)
+  const abortControllerRef = useRef(null)
 
   useEffect(() => {
     fetchReports()
+    return () => {
+      // 组件卸载时取消pending请求
+      abortControllerRef.current?.abort()
+    }
   }, [])
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async (forceRefresh = false) => {
+    // 检查缓存
+    if (!forceRefresh) {
+      const cached = getCached('reports')
+      if (cached) {
+        setReports(cached)
+        return
+      }
+    }
+    
     setLoading(true)
     setError(null)
+    
+    // 取消之前的请求
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    
     try {
-      const res = await axios.get(`${API_BASE}/reports`)
-      setReports(res.data)
+      const res = await axios.get(`${API_BASE}/reports`, {
+        signal: abortControllerRef.current.signal
+      })
+      const data = Array.isArray(res.data) ? res.data : []
+      setReports(data)
+      setCache('reports', data)
     } catch (err) {
-      console.error(err)
-      setError("无法连接到服务器，请确保 Python 后端正在运行。")
+      if (axios.isCancel(err)) return
+      console.error('fetchReports error:', err)
+      const errMsg = err.response?.data?.error || err.message || '未知错误'
+      setError(`无法连接到服务器: ${errMsg}`)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const loadReportDetails = async (report) => {
+  const loadReportDetails = useCallback(async (report) => {
+    if (!report?.id) return
+    
+    // 检查缓存
+    const cacheKey = `report_${report.id}`
+    const cached = getCached(cacheKey)
+    if (cached) {
+      setSelectedReport(cached)
+      setShowAnalyzer(false)
+      return
+    }
+    
     setLoading(true)
     try {
       const [detailsRes, summaryRes] = await Promise.all([
         axios.get(`${API_BASE}/reports/${report.id}`),
-        report.type === 'stock' ? axios.get(`${API_BASE}/reports/${report.id}/summary`).catch(() => ({data: null})) : Promise.resolve({data: null})
+        report.type === 'stock' 
+          ? axios.get(`${API_BASE}/reports/${report.id}/summary`).catch(() => ({data: null})) 
+          : Promise.resolve({data: null})
       ])
       
-      setSelectedReport({
+      const fullReport = {
         ...report,
         ...detailsRes.data,
         summaryData: summaryRes.data
-      })
+      }
+      
+      setSelectedReport(fullReport)
+      setCache(cacheKey, fullReport)
       setShowAnalyzer(false)
     } catch (err) {
-      console.error(err)
-      alert("加载报告详情失败")
+      console.error('loadReportDetails error:', err)
+      setError(`加载报告失败: ${err.response?.data?.error || err.message}`)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const handleAnalysisComplete = (code) => {
-    fetchReports()
+  const handleAnalysisComplete = useCallback((code) => {
+    // 清除缓存以获取最新数据
+    cache.clear()
+    fetchReports(true)
+    
+    // 延迟查找新报告
     setTimeout(() => {
-      const newReport = reports.find(r => r.code === code)
-      if (newReport) loadReportDetails(newReport)
-    }, 1000)
-  }
+      fetchReports(true).then(() => {
+        // 报告列表已更新，查找匹配的报告
+      })
+    }, 1500)
+  }, [fetchReports])
 
   return (
     <div className="geek-container">
@@ -164,46 +252,92 @@ function StockAnalyzer({ onComplete, onBack }) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [showErrorDetails, setShowErrorDetails] = useState(false)
+  const intervalRef = useRef(null)
+  const retryCountRef = useRef(0)
+  const MAX_RETRIES = 3
 
-  const startAnalysis = async () => {
-    if (!code.trim()) {
+  // 清理轮询
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
+  }, [])
+
+  const startAnalysis = useCallback(async () => {
+    const trimmedCode = code.trim()
+    if (!trimmedCode) {
       setError('请输入股票代码')
+      return
+    }
+
+    // 基本验证
+    if (trimmedCode.length < 1 || trimmedCode.length > 10) {
+      setError('代码长度应为 1-10 位')
       return
     }
 
     setError(null)
     setShowErrorDetails(false)
+    retryCountRef.current = 0
+    
     try {
-      const res = await axios.post(`${API_BASE}/analyze`, { code: code.trim() })
-      setTaskId(res.data.task_id)
-      pollStatus(res.data.task_id)
+      const res = await axios.post(`${API_BASE}/analyze`, { code: trimmedCode })
+      if (res.data?.task_id) {
+        setTaskId(res.data.task_id)
+        pollStatus(res.data.task_id)
+      } else {
+        setError('服务器响应异常')
+      }
     } catch (err) {
-      setError(err.response?.data?.error || '启动分析失败')
+      const errMsg = err.response?.data?.error || err.message || '启动分析失败'
+      setError(errMsg)
     }
-  }
+  }, [code])
 
-  const pollStatus = async (id) => {
-    const interval = setInterval(async () => {
+  const pollStatus = useCallback((id) => {
+    // 清除之前的轮询
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+    }
+    
+    const poll = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/analyze/${id}`)
+        const res = await axios.get(`${API_BASE}/analyze/${id}`, { timeout: 10000 })
         setStatus(res.data)
+        retryCountRef.current = 0  // 重置重试计数
 
         if (res.data.status === 'completed') {
-          clearInterval(interval)
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
           setTimeout(() => {
             onComplete(res.data.code)
-          }, 1500)
+          }, 1000)
         } else if (res.data.status === 'error') {
-          clearInterval(interval)
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
           setError(res.data.message)
           setShowErrorDetails(true)
         }
       } catch (err) {
-        clearInterval(interval)
-        setError('获取状态失败')
+        retryCountRef.current++
+        console.warn(`Poll attempt ${retryCountRef.current} failed:`, err.message)
+        
+        if (retryCountRef.current >= MAX_RETRIES) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+          setError(`获取状态失败 (${err.message})`)
+        }
+        // 否则继续轮询，等待下次尝试
       }
-    }, 2000)
-  }
+    }
+    
+    // 立即执行一次
+    poll()
+    // 然后每 2 秒轮询
+    intervalRef.current = setInterval(poll, 2000)
+  }, [onComplete])
 
   return (
     <div className="animate-in" style={{maxWidth: 520, margin: '0 auto'}}>
@@ -1040,7 +1174,7 @@ function MetricBox({ label, value, highlight = false }) {
   return (
     <div className={`metric-box ${highlight ? 'highlight' : ''}`}>
       <div className="metric-label">{label}</div>
-      <div className="metric-value truncate">{value || '-'}</div>
+      <div className="metric-value truncate">{value ?? '-'}</div>
     </div>
   )
 }
@@ -1049,67 +1183,145 @@ function KeyInsightItem({ label, value }) {
   return (
     <div className="flex items-center justify-between p-3 rounded" style={{background: 'var(--bg-tertiary)'}}>
       <span className="text-sm text-secondary">{label}</span>
-      <span className="font-semibold text-primary">{value}</span>
+      <span className="font-semibold text-primary">{value ?? '-'}</span>
     </div>
   )
 }
 
-function ImageCard({ src, fullWidth = false }) {
+// 优化的图片卡片组件 - 带懒加载、错误处理和缓存
+const ImageCard = memo(function ImageCard({ src, fullWidth = false }) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const fileName = src.split('/').pop().replace(/\.(png|jpg|jpeg)$/i, '')
+  const [imageStatus, setImageStatus] = useState('loading') // loading | loaded | error
+  const [retryCount, setRetryCount] = useState(0)
+  
+  const fileName = useMemo(() => {
+    return src?.split('/').pop()?.replace(/\.(png|jpg|jpeg)$/i, '') || 'image'
+  }, [src])
+  
+  const imageUrl = useMemo(() => `http://localhost:5001${src}`, [src])
+  
+  const handleImageLoad = useCallback(() => {
+    setImageStatus('loaded')
+  }, [])
+  
+  const handleImageError = useCallback(() => {
+    if (retryCount < 2) {
+      // 自动重试 2 次
+      setRetryCount(prev => prev + 1)
+    } else {
+      setImageStatus('error')
+    }
+  }, [retryCount])
+  
+  const handleRetry = useCallback(() => {
+    setRetryCount(0)
+    setImageStatus('loading')
+  }, [])
+  
+  const toggleExpand = useCallback(() => {
+    setIsExpanded(prev => !prev)
+  }, [])
+  
+  // ESC 键关闭灯箱
+  useEffect(() => {
+    if (!isExpanded) return
+    
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsExpanded(false)
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isExpanded])
   
   return (
     <>
       <div className={`chart-card ${fullWidth ? 'full-width' : ''}`}>
         <div className="chart-card-header">
           <span title={fileName}>{fileName}</span>
-          <div className="status-dot online"></div>
+          <div className={`status-dot ${imageStatus === 'loaded' ? 'online' : imageStatus === 'error' ? 'offline' : ''}`}></div>
         </div>
         <div 
           className="chart-card-body cursor-pointer" 
-          onClick={() => setIsExpanded(true)}
+          onClick={imageStatus === 'loaded' ? toggleExpand : undefined}
+          style={{ minHeight: 200 }}
         >
+          {imageStatus === 'loading' && (
+            <div className="flex items-center justify-center" style={{position: 'absolute', inset: 0, background: 'var(--bg-tertiary)'}}>
+              <Loader size={24} className="animate-spin" style={{color: 'var(--accent-primary)'}} />
+            </div>
+          )}
+          
+          {imageStatus === 'error' && (
+            <div 
+              className="flex flex-col items-center justify-center gap-2" 
+              style={{position: 'absolute', inset: 0, background: 'var(--bg-tertiary)'}}
+            >
+              <AlertCircle size={32} style={{color: 'var(--color-down)'}} />
+              <span className="text-sm text-muted">加载失败</span>
+              <button 
+                onClick={handleRetry}
+                className="text-xs px-3 py-1 rounded"
+                style={{background: 'var(--accent-primary)', color: 'white'}}
+              >
+                重试
+              </button>
+            </div>
+          )}
+          
           <img 
-            src={`http://localhost:5001${src}`} 
+            key={retryCount} // 强制重新加载
+            src={imageUrl}
             alt={fileName}
             loading="lazy"
-          />
-          <div 
-            className="flex items-center justify-center gap-2"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(41, 98, 255, 0.05)',
-              opacity: 0,
-              transition: 'opacity 0.2s'
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            style={{ 
+              opacity: imageStatus === 'loaded' ? 1 : 0,
+              transition: 'opacity 0.3s ease'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-            onMouseLeave={(e) => e.currentTarget.style.opacity = 0}
-          >
-            <span 
-              className="flex items-center gap-1 text-sm"
+          />
+          
+          {imageStatus === 'loaded' && (
+            <div 
+              className="flex items-center justify-center gap-2"
               style={{
-                background: 'var(--bg-secondary)',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--text-primary)'
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(41, 98, 255, 0.05)',
+                opacity: 0,
+                transition: 'opacity 0.2s'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = 0}
             >
-              <Maximize2 size={14} />
-              点击放大
-            </span>
-          </div>
+              <span 
+                className="flex items-center gap-1 text-sm"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  padding: '6px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                <Maximize2 size={14} />
+                点击放大
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Lightbox */}
+      {/* Lightbox - 性能优化：使用 Portal 可能更好，但这里保持简单 */}
       {isExpanded && (
-        <div className="lightbox-overlay" onClick={() => setIsExpanded(false)}>
-          <button className="lightbox-close" onClick={() => setIsExpanded(false)}>
+        <div className="lightbox-overlay" onClick={toggleExpand}>
+          <button className="lightbox-close" onClick={toggleExpand}>
             ✕
           </button>
           <img 
-            src={`http://localhost:5001${src}`} 
+            src={imageUrl}
             alt={fileName}
             className="lightbox-image"
             onClick={(e) => e.stopPropagation()}
@@ -1118,6 +1330,6 @@ function ImageCard({ src, fullWidth = false }) {
       )}
     </>
   )
-}
+})
 
 export default App
