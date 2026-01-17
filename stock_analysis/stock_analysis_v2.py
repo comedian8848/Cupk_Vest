@@ -1383,6 +1383,7 @@ class StockAnalyzer:
         
         # 获取行业成分股对比
         df = industry_compare.get_industry_comparison(industry_name, self.stock_code)
+        self.industry_comp_df = df
         
         if df is None or df.empty:
             self._log(f"  ⚠️ 获取 [{industry_name}] 行业成分股失败")
@@ -2394,16 +2395,19 @@ class StockAnalyzer:
         try:
             fig, ax1 = plt.subplots(figsize=(14, 6))
 
-            # 获取季度营收数据
-            quarterly_reports = self.financial_data.copy()
-            rev_col = next((c for c in quarterly_reports.columns if '营业总收入' in c or '营业收入' in c), None)
-            
-            if rev_col:
-                # 营收柱状图 (使用季度末日期)
-                dates = quarterly_reports['截止日期']
-                revs_yi = quarterly_reports[rev_col].apply(self._safe_float) / 1e8 # 转换为亿元
+            # 获取滚动营收数据 (TTM)
+            if 'ttm_rev' in data and not data['ttm_rev'].empty:
+                # 营收柱状图
+                ttm_rev = data['ttm_rev']
+                
+                # 限制10年数据
+                cutoff_10y = pd.Timestamp.now() - pd.DateOffset(years=10)
+                ttm_rev = ttm_rev[ttm_rev.index >= cutoff_10y]
+                
+                revs_yi = ttm_rev / 1e8 # 转换为亿元
+                dates = ttm_rev.index
 
-                ax1.bar(dates, revs_yi, width=40, color='lightgreen', label='季度营收(累计)', alpha=0.6)
+                ax1.bar(dates, revs_yi, width=60, color='lightgreen', label='滚动营收(TTM)', alpha=0.6)
                 ax1.set_ylabel('营收 (亿元)', color='green')
                 ax1.tick_params(axis='y', labelcolor='green')
 
@@ -2417,12 +2421,11 @@ class StockAnalyzer:
                     ax2.tick_params(axis='y', labelcolor='blue')
                     
                     # 设置x轴范围为10年
-                    cutoff_10y = pd.Timestamp.now() - pd.DateOffset(years=10)
                     min_date = max(cutoff_10y, min(dates.min(), kline_df['日期'].min()))
                     max_date = max(dates.max(), kline_df['日期'].max())
                     ax1.set_xlim(min_date, max_date)
                 
-                plt.title(f'{self.stock_name} - 股价与季度营收趋势 (近10年)')
+                plt.title(f'{self.stock_name} - 股价与滚动营收趋势 (近10年)')
                 
                 # 合并图例
                 lines, labels = ax1.get_legend_handles_labels()
@@ -2438,7 +2441,7 @@ class StockAnalyzer:
                 plt.close()
                 print(f"  ✓ 生成图表: 03_市值营收滚动.png")
             else:
-                print(f"  ⚠ 生成图表4失败: 未找到营收列")
+                print(f"  ⚠ 生成图表3失败: 无滚动营收数据")
 
         except Exception as e:
             print(f"  ⚠ 生成图表4失败: {e}")
@@ -5045,10 +5048,10 @@ class StockAnalyzer:
             print(f"  ⚠ 估值Dashboard生成失败: {e}")
     
     def _generate_expense_dashboard(self):
-        """费用结构Dashboard (1x3): 销售费用、财务费用、研发费用"""
+        """费用结构Dashboard (2x2): 销售、管理、研发、财务费用"""
         try:
-            fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-            fig.suptitle(f'{self.stock_name} - 费用结构 Dashboard', fontsize=16, fontweight='bold', y=1.02)
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            fig.suptitle(f'{self.stock_name} - 费用结构 Dashboard (近6年)', fontsize=16, fontweight='bold', y=0.98)
             
             inc_df = self.income_statement
             if inc_df is None:
@@ -5067,53 +5070,55 @@ class StockAnalyzer:
             rev_col = next((c for c in annual.columns if '营业总收入' in c or '营业收入' in c), None)
             rev = annual[rev_col].apply(self._safe_float) / 1e8 if rev_col else None
             
-            # === 子图1: 销售费用 ===
-            ax1 = axes[0]
-            sale_col = next((c for c in annual.columns if '销售费用' in c), None)
-            if sale_col:
-                sale_exp = annual[sale_col].apply(self._safe_float) / 1e8
-                ax1.bar(years, sale_exp, color='orange', alpha=0.8, label='销售费用')
-                ax1.set_ylabel('亿元')
-                ax1.set_title('销售费用', fontsize=11, fontweight='bold')
-                
-                if rev is not None:
-                    ax1_twin = ax1.twinx()
-                    ratio = (sale_exp.values / rev.values * 100)
-                    ax1_twin.plot(years, ratio, 'r--o', linewidth=2, label='占营收比')
-                    ax1_twin.set_ylabel('占营收 %', color='red')
-                    ax1_twin.tick_params(axis='y', labelcolor='red')
-                ax1.grid(True, alpha=0.3, axis='y')
+            # 辅助绘图函数
+            def plot_expense(ax, col_name, title, bar_color, line_color, line_style):
+                col = next((c for c in annual.columns if col_name in c), None)
+                if col:
+                    exp = annual[col].apply(self._safe_float) / 1e8
+                    
+                    # 绘制柱状图
+                    if col_name == '财务费用':
+                         colors = ['#e74c3c' if x > 0 else '#2ecc71' for x in exp.values]
+                         ax.bar(years, exp, color=colors, alpha=0.7, label=title)
+                         ax.axhline(0, color='black', linewidth=0.5)
+                    else:
+                         ax.bar(years, exp, color=bar_color, alpha=0.7, label=title)
+                    
+                    ax.set_ylabel('费用 (亿元)', color=bar_color if col_name != '财务费用' else 'black')
+                    ax.set_title(title, fontsize=11, fontweight='bold')
+                    
+                    # 绘制占营收比例
+                    if rev is not None:
+                        ax_twin = ax.twinx()
+                        ratio = (exp.values / rev.values * 100)
+                        ax_twin.plot(years, ratio, color=line_color, marker='o', linestyle=line_style, linewidth=1.5, label='费率(%)')
+                        ax_twin.set_ylabel('占营收 %', color=line_color)
+                        ax_twin.tick_params(axis='y', labelcolor=line_color)
+                        
+                        # 标注最新值
+                        last_ratio = ratio[-1]
+                        ax_twin.annotate(f'{last_ratio:.1f}%', xy=(years.iloc[-1], last_ratio),
+                                       xytext=(0, 5), textcoords='offset points', 
+                                       fontsize=9, fontweight='bold', color=line_color)
+
+                    ax.grid(True, alpha=0.3)
+                    return True
+                return False
+
+            # === 1. 销售费用 (左上) - 橙色 ===
+            plot_expense(axes[0, 0], '销售费用', '销售费用', '#f39c12', '#d35400', '--')
             
-            # === 子图2: 财务费用 ===
-            ax2 = axes[1]
-            fin_col = next((c for c in annual.columns if '财务费用' in c), None)
-            if fin_col:
-                fin_exp = annual[fin_col].apply(self._safe_float) / 1e8
-                colors_fin = ['red' if v > 0 else 'green' for v in fin_exp]
-                ax2.bar(years, fin_exp, color=colors_fin, alpha=0.8)
-                ax2.axhline(y=0, color='black', linewidth=0.5)
-                ax2.set_ylabel('亿元')
-                ax2.set_title('财务费用 (负=利息收入)', fontsize=11, fontweight='bold')
-                ax2.grid(True, alpha=0.3, axis='y')
+            # === 2. 管理费用 (右上) - 蓝色 ===
+            plot_expense(axes[0, 1], '管理费用', '管理费用', '#3498db', '#2980b9', '-.')
             
-            # === 子图3: 研发费用 ===
-            ax3 = axes[2]
-            rd_col = next((c for c in annual.columns if '研发费用' in c), None)
-            if rd_col:
-                rd_exp = annual[rd_col].apply(self._safe_float) / 1e8
-                ax3.bar(years, rd_exp, color='purple', alpha=0.8, label='研发费用')
-                ax3.set_ylabel('亿元')
-                ax3.set_title('研发费用', fontsize=11, fontweight='bold')
-                
-                if rev is not None:
-                    ax3_twin = ax3.twinx()
-                    ratio = (rd_exp.values / rev.values * 100)
-                    ax3_twin.plot(years, ratio, 'b--s', linewidth=2, label='研发强度')
-                    ax3_twin.set_ylabel('占营收 %', color='blue')
-                    ax3_twin.tick_params(axis='y', labelcolor='blue')
-                ax3.grid(True, alpha=0.3, axis='y')
+            # === 3. 研发费用 (左下) - 紫色 ===
+            plot_expense(axes[1, 0], '研发费用', '研发费用', '#9b59b6', '#8e44ad', ':')
+            
+            # === 4. 财务费用 (右下) - 红/绿 ===
+            plot_expense(axes[1, 1], '财务费用', '财务费用 (红支绿收)', 'gray', 'black', '-')
             
             plt.tight_layout()
+            plt.subplots_adjust(top=0.92)
             plt.savefig(f"{self.output_dir}/D3_费用Dashboard.png", dpi=200, bbox_inches='tight')
             plt.close()
             print(f"  ✓ 生成合并图表: D3_费用Dashboard.png")
@@ -5639,6 +5644,36 @@ class StockAnalyzer:
                 },
                 'trend': 'bullish' if closes.iloc[-1] > ma60 else 'bearish',
             }
+
+            # 添加K线历史数据 (OHLCV) - 用于前端交互式图表
+            # 限制最近 500 个交易日
+            kline_history = []
+            recent_kline = self.stock_kline.tail(500)
+            for _, row in recent_kline.iterrows():
+                kline_history.append({
+                    'date': row['日期'].strftime('%Y-%m-%d') if hasattr(row['日期'], 'strftime') else str(row['日期']),
+                    'open': round(row['开盘'], 2),
+                    'high': round(row['最高'], 2),
+                    'low': round(row['最低'], 2),
+                    'close': round(row['收盘'], 2),
+                    'volume': int(row['成交量']),
+                })
+            data['kline_history'] = kline_history
+
+        # 添加行业对比数据
+        if hasattr(self, 'industry_comp_df') and self.industry_comp_df is not None and not self.industry_comp_df.empty:
+            industry_comp = []
+            for _, row in self.industry_comp_df.iterrows():
+                industry_comp.append({
+                    'code': str(row.get('代码', '')),
+                    'name': str(row.get('名称', '')),
+                    'price': round(row.get('股价', 0), 2) if row.get('股价') else None,
+                    'change_pct': round(row.get('涨跌幅', 0), 2) if row.get('涨跌幅') else None,
+                    'pe': round(row.get('PE(动态)', 0), 2) if row.get('PE(动态)') else None,
+                    'pb': round(row.get('PB', 0), 2) if row.get('PB') else None,
+                    'market_cap': round(row.get('总市值', 0) / 1e8, 2) if row.get('总市值') else None,
+                })
+            data['industry_comparison'] = industry_comp
         
         # 分红数据
         if self.dividend_data is not None and len(self.dividend_data) > 0:

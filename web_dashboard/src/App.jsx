@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
 import axios from 'axios'
-import { BarChart3, Activity, DollarSign, TrendingUp, FileText, Image as ImageIcon, ArrowLeft, RefreshCw, Cpu, Box, Layers, AlertTriangle, Play, Loader, CheckCircle, XCircle, LayoutGrid, Maximize2, LineChart, PieChart, BarChart2, TrendingDown, AlertCircle } from 'lucide-react'
+import { BarChart3, Activity, DollarSign, TrendingUp, FileText, Image as ImageIcon, ArrowLeft, RefreshCw, Cpu, Box, Layers, AlertTriangle, Play, Loader, CheckCircle, XCircle, LayoutGrid, Maximize2, LineChart, PieChart, BarChart2, TrendingDown, AlertCircle, MousePointer2, Bot, Settings } from 'lucide-react'
 import { LineChart as ReLineChart, Line, BarChart as ReBarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart } from 'recharts'
-
-const API_BASE = 'http://localhost:5001/api'
+import InteractiveStockChart from './components/InteractiveStockChart'
+import AnalysisRadar from './components/AnalysisRadar'
+import IndustryPeersTable from './components/IndustryPeersTable'
+import IndustryComparison from './components/IndustryComparison'
+import AIReport from './components/AIReport'
+import { fetchReports as apiFetchReports, fetchReportDetails as apiFetchReportDetails, fetchReportSummary as apiFetchReportSummary, startAnalysis as apiStartAnalysis, getAnalysisStatus as apiGetAnalysisStatus } from './api'
 
 // ==================== 性能优化工具 ====================
 // 配置 axios 默认超时和重试
@@ -53,15 +57,53 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showAnalyzer, setShowAnalyzer] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [aiSettings, setAiSettings] = useState({
+    apiKey: '',
+    baseUrl: 'https://api.minimaxi.com/anthropic',
+    model: 'MiniMax-M2.1',
+    timeoutMs: 60000,
+    proxy: ''
+  })
   const abortControllerRef = useRef(null)
 
   useEffect(() => {
     fetchReports()
+    try {
+      const raw = localStorage.getItem('ai_settings')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        const proxyValue = typeof parsed.PROXY === 'string'
+          ? parsed.PROXY
+          : (parsed.PROXY?.http || parsed.PROXY?.https || '')
+        setAiSettings({
+          apiKey: parsed.API_KEY || '',
+          baseUrl: parsed.BASE_URL || 'https://api.minimaxi.com/anthropic',
+          model: parsed.MODEL || 'MiniMax-M2.1',
+          timeoutMs: parsed.TIMEOUT || 60000,
+          proxy: proxyValue
+        })
+      }
+    } catch (e) {
+      // ignore
+    }
     return () => {
       // 组件卸载时取消pending请求
       abortControllerRef.current?.abort()
     }
   }, [])
+
+  const saveAiSettings = useCallback(() => {
+    const payload = {
+      API_KEY: aiSettings.apiKey?.trim(),
+      BASE_URL: aiSettings.baseUrl?.trim(),
+      MODEL: aiSettings.model?.trim(),
+      TIMEOUT: Number(aiSettings.timeoutMs) || 60000,
+      PROXY: aiSettings.proxy?.trim() || null
+    }
+    localStorage.setItem('ai_settings', JSON.stringify(payload))
+    setShowSettings(false)
+  }, [aiSettings])
 
   const fetchReports = useCallback(async (forceRefresh = false) => {
     // 检查缓存
@@ -81,7 +123,7 @@ function App() {
     abortControllerRef.current = new AbortController()
     
     try {
-      const res = await axios.get(`${API_BASE}/reports`, {
+      const res = await apiFetchReports({
         signal: abortControllerRef.current.signal
       })
       const data = Array.isArray(res.data) ? res.data : []
@@ -112,9 +154,9 @@ function App() {
     setLoading(true)
     try {
       const [detailsRes, summaryRes] = await Promise.all([
-        axios.get(`${API_BASE}/reports/${report.id}`),
+        apiFetchReportDetails(report.id),
         report.type === 'stock' 
-          ? axios.get(`${API_BASE}/reports/${report.id}/summary`).catch(() => ({data: null})) 
+          ? apiFetchReportSummary(report.id).catch(() => ({data: null})) 
           : Promise.resolve({data: null})
       ])
       
@@ -173,12 +215,78 @@ function App() {
             <Play size={14} />
             <span>新建分析</span>
           </button>
+          <button onClick={() => setShowSettings(true)} className="geek-btn" style={{background: 'var(--bg-tertiary)'}}>
+            <Settings size={14} />
+            <span className="hidden-md">设置</span>
+          </button>
           <button onClick={fetchReports} className="geek-btn" disabled={loading} style={{background: 'var(--bg-tertiary)'}}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             <span className="hidden-md">刷新</span>
           </button>
         </div>
       </header>
+
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">AI 设置</div>
+              <button className="modal-close" onClick={() => setShowSettings(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-row">
+                <label>API Key</label>
+                <input
+                  type="password"
+                  value={aiSettings.apiKey}
+                  onChange={(e) => setAiSettings(s => ({ ...s, apiKey: e.target.value }))}
+                  placeholder="ANTHROPIC_API_KEY"
+                />
+              </div>
+              <div className="form-row">
+                <label>Base URL</label>
+                <input
+                  type="text"
+                  value={aiSettings.baseUrl}
+                  onChange={(e) => setAiSettings(s => ({ ...s, baseUrl: e.target.value }))}
+                  placeholder="https://api.minimaxi.com/anthropic"
+                />
+              </div>
+              <div className="form-row">
+                <label>Model</label>
+                <input
+                  type="text"
+                  value={aiSettings.model}
+                  onChange={(e) => setAiSettings(s => ({ ...s, model: e.target.value }))}
+                  placeholder="MiniMax-M2.1"
+                />
+              </div>
+              <div className="form-row">
+                <label>Timeout (ms)</label>
+                <input
+                  type="number"
+                  value={aiSettings.timeoutMs}
+                  onChange={(e) => setAiSettings(s => ({ ...s, timeoutMs: e.target.value }))}
+                  placeholder="60000"
+                />
+              </div>
+              <div className="form-row">
+                <label>Proxy (可选)</label>
+                <input
+                  type="text"
+                  value={aiSettings.proxy}
+                  onChange={(e) => setAiSettings(s => ({ ...s, proxy: e.target.value }))}
+                  placeholder="http://127.0.0.1:7897"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="geek-btn" style={{background: 'var(--bg-tertiary)'}} onClick={() => setShowSettings(false)}>取消</button>
+              <button className="geek-btn" onClick={saveAiSettings}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -283,7 +391,7 @@ function StockAnalyzer({ onComplete, onBack }) {
     retryCountRef.current = 0
     
     try {
-      const res = await axios.post(`${API_BASE}/analyze`, { code: trimmedCode })
+      const res = await apiStartAnalysis(trimmedCode)
       if (res.data?.task_id) {
         setTaskId(res.data.task_id)
         pollStatus(res.data.task_id)
@@ -304,7 +412,7 @@ function StockAnalyzer({ onComplete, onBack }) {
     
     const poll = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/analyze/${id}`, { timeout: 10000 })
+        const res = await apiGetAnalysisStatus(id, { timeout: 10000 })
         setStatus(res.data)
         retryCountRef.current = 0  // 重置重试计数
 
@@ -436,6 +544,7 @@ function StockAnalyzer({ onComplete, onBack }) {
 
 function ReportDetail({ report, onBack }) {
   const [activeTab, setActiveTab] = useState('overview')
+  const [industryBaseline, setIndustryBaseline] = useState('mean')
   
   const images = report.images || []
   const categories = {
@@ -457,7 +566,9 @@ function ReportDetail({ report, onBack }) {
     : (activeTab === 'all' ? images : [])
 
   const TABS = [
+    { id: 'ai', label: 'AI分析', icon: <Bot size={14} /> },
     { id: 'overview', label: '核心摘要', icon: <AlertCircle size={14} /> },
+    { id: 'interactive', label: '交互分析', icon: <MousePointer2 size={14} /> },
     { id: 'charts', label: '数据图表', icon: <LineChart size={14} /> },
     { id: 'trend', label: '趋势', icon: <TrendingUp size={14} /> },
     { id: 'valuation', label: '估值', icon: <DollarSign size={14} /> },
@@ -468,7 +579,88 @@ function ReportDetail({ report, onBack }) {
 
   const summary = report.summaryData || {}
   const fullData = summary.full_data || {}
+  const rawComp = fullData.industry_comparison
   
+  // Helper to prepare industry comparison data
+  const currentStockData = useMemo(() => ({
+    roe: summary.roe,
+    gross_margin: summary.gross_margin,
+    net_margin: summary.net_margin,
+    debt_ratio: summary.debt_ratio,
+    pe_ttm: summary.pe_ttm,
+    pb: summary.pb,
+    dividend_yield: summary.dividend_yield
+  }), [summary])
+
+  const baselineOptions = useMemo(() => {
+    if (rawComp && rawComp.stock_data && rawComp.avg_data) {
+      return [{ id: 'report_avg', label: '报告行业均值' }]
+    }
+    if (Array.isArray(rawComp)) {
+      return [
+        { id: 'mean', label: '行业均值' },
+        { id: 'median', label: '行业中位数' },
+        { id: 'trim', label: '剔除极端值' }
+      ]
+    }
+    return []
+  }, [rawComp])
+
+  useEffect(() => {
+    if (baselineOptions.length > 0 && !baselineOptions.find(o => o.id === industryBaseline)) {
+      setIndustryBaseline(baselineOptions[0].id)
+    }
+  }, [baselineOptions, industryBaseline])
+
+  const industryData = useMemo(() => {
+    if (rawComp && rawComp.stock_data && rawComp.avg_data) {
+      return industryBaseline === 'report_avg' ? rawComp.avg_data : rawComp.avg_data
+    }
+    if (!Array.isArray(rawComp) || rawComp.length === 0) return null
+
+    const getValues = (key) => rawComp
+      .map(item => item?.[key])
+      .filter(val => typeof val === 'number' && val > 0)
+
+    const calcMean = (vals) => vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+    const calcMedian = (vals) => {
+      if (!vals.length) return null
+      const sorted = [...vals].sort((a, b) => a - b)
+      const mid = Math.floor(sorted.length / 2)
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    }
+    const calcTrimmedMean = (vals, ratio = 0.1) => {
+      if (!vals.length) return null
+      const sorted = [...vals].sort((a, b) => a - b)
+      const trim = Math.floor(sorted.length * ratio)
+      const trimmed = sorted.slice(trim, sorted.length - trim)
+      const finalVals = trimmed.length ? trimmed : sorted
+      return calcMean(finalVals)
+    }
+
+    const calcByMode = (vals, mode) => {
+      if (mode === 'median') return calcMedian(vals)
+      if (mode === 'trim') return calcTrimmedMean(vals)
+      return calcMean(vals)
+    }
+
+    const mode = industryBaseline
+    const pes = getValues('pe')
+    const pbs = getValues('pb')
+
+    return {
+      pe_ttm: calcByMode(pes, mode),
+      pb: calcByMode(pbs, mode),
+      roe: null,
+      gross_margin: null,
+      net_margin: null,
+      debt_ratio: null,
+      dividend_yield: null
+    }
+  }, [rawComp, industryBaseline])
+
+  const stockData = currentStockData
+
   return (
     <div className="animate-in">
       {/* Back Button */}
@@ -551,10 +743,23 @@ function ReportDetail({ report, onBack }) {
       )}
 
       {/* Content by Tab */}
+      {activeTab === 'ai' && (
+        <AIReport 
+          reportId={report.id} 
+          currentPrice={fullData.valuation?.price || 0}
+        />
+      )}
+
       {activeTab === 'overview' && (
         <>
-          {fullData && Object.keys(fullData).length > 0 && (
+          {fullData && Object.keys(fullData).length > 0 ? (
             <AnalysisInsights data={fullData} summary={summary} />
+          ) : (
+            <div className="info-panel mb-6 text-center py-8">
+              <AlertCircle size={32} className="mx-auto mb-2 text-muted" />
+              <p className="text-secondary">暂无核心分析数据</p>
+              <p className="text-xs text-muted mt-1">可能是分析未完成或数据加载失败</p>
+            </div>
           )}
           
           {/* 概览Dashboard图片 */}
@@ -578,6 +783,53 @@ function ReportDetail({ report, onBack }) {
             </div>
           )}
         </>
+      )}
+
+      {activeTab === 'interactive' && fullData && (
+        <div className="flex flex-col gap-6 mb-8">
+          {/* 1. 交互式K线图 */}
+          <div className="info-panel">
+             <h3 className="text-base font-bold text-primary mb-4 flex items-center gap-2">
+                <Activity size={18} style={{color: 'var(--accent-primary)'}} />
+                交互式价格趋势 (Zoom/Pan)
+             </h3>
+             <div style={{ height: 500 }}>
+               <InteractiveStockChart data={fullData.kline_history} title={`${summary.stock_name} - 股价走势`} />
+             </div>
+             <div className="text-xs text-muted mt-2 text-center">
+               支持鼠标滚轮缩放、拖拽平移、框选放大
+             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             {/* 2. 能力雷达图 */}
+             <div className="info-panel">
+               <h3 className="text-base font-bold text-primary mb-4 flex items-center gap-2">
+                  <Activity size={18} style={{color: 'var(--color-up)'}} />
+                  五维能力雷达
+               </h3>
+               <div style={{ height: 350 }}>
+                 <AnalysisRadar scores={fullData.scores} />
+               </div>
+             </div>
+
+             {/* 3. 同业对比表格 */}
+             <div className="info-panel">
+               <h3 className="text-base font-bold text-primary mb-4 flex items-center gap-2">
+                  <Layers size={18} style={{color: 'var(--color-warning)'}} />
+                  同行业对比
+               </h3>
+               <IndustryComparison 
+                  stockData={stockData} 
+                  industryData={industryData}
+                  stockName={summary.stock_name}
+                  baseline={industryBaseline}
+                  baselineOptions={baselineOptions}
+                  onBaselineChange={setIndustryBaseline}
+               />
+             </div>
+          </div>
+        </div>
       )}
 
       {activeTab === 'charts' && (

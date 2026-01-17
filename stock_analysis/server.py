@@ -65,6 +65,7 @@ class LRUCache:
 report_cache = LRUCache(maxsize=50, ttl=60)  # 报告列表缓存 60 秒
 summary_cache = LRUCache(maxsize=100, ttl=300)  # 摘要数据缓存 5 分钟
 file_etag_cache = LRUCache(maxsize=500, ttl=3600)  # 文件 ETag 缓存 1 小时
+ai_report_cache = LRUCache(maxsize=100, ttl=3600)  # AI 报告缓存 1 小时
 
 # ==================== 任务管理 ====================
 class TaskManager:
@@ -555,6 +556,87 @@ def get_report_summary(report_id):
             print(f"[ERROR] Reading text report: {e}")
     
     return jsonify({"error": "无摘要数据"}), 404
+
+# ==================== AI 分析接口 ====================
+
+@app.route('/api/ai-analyze', methods=['POST'])
+@log_request
+def ai_analyze():
+    """AI 深度分析接口"""
+    try:
+        # 延迟导入，防止依赖缺失导致服务器无法启动
+        from ai_analyzer import AIAnalyzer
+        
+        data = request.json or {}
+        report_id = data.get('report_id')
+        force = data.get('force') or request.args.get('force')
+        if isinstance(force, str):
+            force = force.lower() in ('1', 'true', 'yes')
+        
+        if not report_id:
+            return jsonify({"error": "Missing report_id"}), 400
+
+        # 安全检查
+        if '..' in report_id or report_id.startswith('/'):
+            return jsonify({"error": "Invalid report ID"}), 400
+
+        path = os.path.join(WORKING_DIR, report_id)
+        json_path = os.path.join(path, 'analysis_data.json')
+        
+        if not os.path.exists(json_path):
+            return jsonify({"error": "Report data not found"}), 404
+            
+        # 缓存检查
+        cache_key = None
+        if not force:
+            etag = compute_file_etag(json_path)
+            cache_key = f"ai_{report_id}_{etag}" if etag else f"ai_{report_id}"
+            cached = ai_report_cache.get(cache_key)
+            if cached:
+                return jsonify(cached)
+
+        stock_data = safe_json_load(json_path)
+        if not stock_data:
+             return jsonify({"error": "Failed to load report data"}), 500
+
+        # 尝试获取行业对比数据
+        industry_comp = stock_data.get('industry_comparison')
+        industry_avg = None
+        
+        if isinstance(industry_comp, dict):
+            industry_avg = industry_comp.get('avg_data')
+        elif isinstance(industry_comp, list) and industry_comp:
+            # 计算简单的平均值 (PE, PB, 市值)
+            try:
+                pes = [x['pe'] for x in industry_comp if x.get('pe') and x['pe'] > 0]
+                pbs = [x['pb'] for x in industry_comp if x.get('pb') and x['pb'] > 0]
+                
+                industry_avg = {
+                    'pe_ttm': sum(pes) / len(pes) if pes else None,
+                    'pb': sum(pbs) / len(pbs) if pbs else None,
+                    'roe': None, # 暂无数据
+                    'gross_margin': None,
+                    'net_margin': None,
+                    'debt_ratio': None
+                }
+            except Exception as e:
+                print(f"[WARN] Failed to calc industry avg: {e}")
+
+        ai_config = data.get('ai_config') if isinstance(data, dict) else None
+        analyzer = AIAnalyzer(ai_config=ai_config)
+        result = analyzer.generate_report(stock_data, industry_avg)
+        
+        if "error" in result:
+            return jsonify(result), 500
+        
+        if cache_key:
+            ai_report_cache.set(cache_key, result)
+             
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[ERROR] ai_analyze: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # ==================== 错误处理 ====================
 @app.errorhandler(404)

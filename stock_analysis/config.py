@@ -76,3 +76,18 @@ MAX_WORKERS = 8
 
 # 获取K线数据时的年限
 KLINE_YEARS = 10
+
+# ==================== AI 分析配置 ====================
+import os
+
+# AI API 配置
+AI_CONFIG = {
+    'API_KEY': os.getenv('ANTHROPIC_API_KEY', ''),
+    'BASE_URL': os.getenv('ANTHROPIC_BASE_URL', 'https://api.minimaxi.com/anthropic'),
+    'MODEL': os.getenv('ANTHROPIC_MODEL', 'MiniMax-M2.1'),
+    'TIMEOUT': int(os.getenv('API_TIMEOUT_MS', '60000')),
+    'PROXY': {
+        'http': os.getenv('HTTP_PROXY'),
+        'https': os.getenv('HTTPS_PROXY')
+    } if os.getenv('HTTP_PROXY') else None
+}
